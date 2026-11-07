@@ -1,2 +1,4 @@
 import "./style.css";
-document.querySelector("#app")!.textContent = "Robo Chef";
+import { Kitchen } from "./scene";
+document.querySelector("#app")!.innerHTML = '<div id="scene"></div>';
+new Kitchen(document.getElementById("scene")!);
