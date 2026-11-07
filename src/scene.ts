@@ -1,172 +1,12 @@
 import * as T from "three";
-import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
-import {
-  CONNECTIONS,
-  type Point,
-  type Side,
-  type HandInput,
-  clamp,
-} from "./hand-input";
+import { type Point, type Side, clamp } from "./hand-input";
 import { Interaction } from "./interaction";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { buildKitchen } from "./kitchen-assets";
+import { RobotHand } from "./robot-hand";
 
 const V = (p: Point) => new T.Vector3(p.x, p.y, p.z);
 const up = new T.Vector3(0, 1, 0);
-const material = (color: number, metalness = 0, roughness = 0.6) =>
-  new T.MeshStandardMaterial({ color, metalness, roughness });
-const white = material(0xc9cdd0, 0.65, 0.38),
-  joint = material(0x30373c, 0.65, 0.38),
-  accent = material(0x55616b, 0.65, 0.32);
-const defaults = (side: Side, grip = false) => {
-  const s = side === "Left" ? -1 : 1;
-  const p: T.Vector3[] = [new T.Vector3(0, 0, 0.25)];
-  for (let finger = 0; finger < 5; finger++)
-    for (let k = 0; k < 4; k++) {
-      if (finger === 0)
-        p.push(
-          new T.Vector3(
-            s * (-0.22 - k * 0.055),
-            grip ? 0.03 + k * 0.035 : 0,
-            0.11 - k * 0.065,
-          ),
-        );
-      else
-        p.push(
-          new T.Vector3(
-            s * ((finger - 1) * 0.115 - 0.17),
-            grip ? 0.04 + Math.sin((k / 3) * Math.PI) * 0.17 : 0.01,
-            -0.03 - k * (finger === 4 ? 0.085 : 0.105) + (grip ? k * 0.08 : 0),
-          ),
-        );
-    }
-  return p;
-};
-
-class RobotHand {
-  group = new T.Group();
-  points: T.Vector3[];
-  targets: T.Vector3[];
-  bones: T.Mesh[] = [];
-  joints: T.Mesh[] = [];
-  palm: T.Mesh;
-  cuff: T.Mesh;
-  arm: T.Group;
-  position: T.Vector3;
-  target: T.Vector3;
-  lastSeen = 0;
-  active = false;
-  constructor(
-    public side: Side,
-    scene: T.Scene,
-  ) {
-    this.points = defaults(side);
-    this.targets = defaults(side);
-    this.position = new T.Vector3(side === "Left" ? -1.45 : 1.45, 0.65, 1.35);
-    this.target = this.position.clone();
-    for (const _ of CONNECTIONS) {
-      const bone = new T.Mesh(
-        new T.CylinderGeometry(0.034, 0.04, 1, 12),
-        white,
-      );
-      bone.castShadow = true;
-      this.group.add(bone);
-      this.bones.push(bone);
-    }
-    for (let i = 0; i < 21; i++) {
-      const dot = new T.Mesh(
-        new T.SphereGeometry(i === 0 ? 0.07 : 0.043, 16, 12),
-        joint,
-      );
-      this.group.add(dot);
-      this.joints.push(dot);
-    }
-    this.palm = new T.Mesh(
-      new RoundedBoxGeometry(0.38, 0.105, 0.3, 2, 0.04),
-      white,
-    );
-    this.palm.castShadow = true;
-    this.group.add(this.palm);
-    const inset = new T.Mesh(
-      new RoundedBoxGeometry(0.23, 0.015, 0.15, 2, 0.015),
-      accent,
-    );
-    inset.position.set(0, 0.059, 0);
-    this.palm.add(inset);
-    this.cuff = new T.Mesh(
-      new T.CylinderGeometry(0.12, 0.13, 0.15, 16),
-      accent,
-    );
-    this.group.add(this.cuff);
-    this.arm = new T.Group();
-    const core = new T.Mesh(new T.CylinderGeometry(0.075, 0.09, 1, 16), joint);
-    const shell = new T.Mesh(
-      new RoundedBoxGeometry(0.185, 0.76, 0.17, 3, 0.045),
-      white,
-    );
-    const wristRing = new T.Mesh(
-      new T.CylinderGeometry(0.1, 0.1, 0.08, 24),
-      accent,
-    );
-    wristRing.position.y = 0.44;
-    const elbowRing = wristRing.clone();
-    elbowRing.position.y = -0.44;
-    this.arm.add(core, shell, wristRing, elbowRing);
-    this.arm.traverse((object) => {
-      if (object instanceof T.Mesh) object.castShadow = true;
-    });
-    scene.add(this.arm);
-    scene.add(this.group);
-  }
-  pose(input: HandInput) {
-    const points = input.world.length === 21 ? input.world : input.landmarks;
-    const center = points[9];
-    this.targets = points.map(
-      (p) =>
-        new T.Vector3(
-          -(p.x - center.x) * 3.5,
-          -(p.z - center.z) * 3.5,
-          (p.y - center.y) * 3.5,
-        ),
-    );
-  }
-  demo(grip: boolean) {
-    this.targets = defaults(this.side, grip);
-  }
-  update(dt: number) {
-    const a = 1 - Math.exp(-18 * dt);
-    this.position.lerp(this.target, a);
-    this.group.position.copy(this.position);
-    this.points.forEach((p, i) => p.lerp(this.targets[i], a));
-    CONNECTIONS.forEach(([a, b], i) => {
-      const start = this.points[a],
-        end = this.points[b],
-        m = this.bones[i];
-      m.position.copy(start).lerp(end, 0.5);
-      m.scale.y = start.distanceTo(end);
-      m.quaternion.setFromUnitVectors(up, end.clone().sub(start).normalize());
-    });
-    this.joints.forEach((m, i) => m.position.copy(this.points[i]));
-    const wrist = this.points[0],
-      middle = this.points[9];
-    this.palm.position.copy(wrist).lerp(middle, 0.53);
-    const z = wrist.clone().sub(middle).normalize(),
-      x = this.points[17].clone().sub(this.points[5]).normalize(),
-      y = z.clone().cross(x).normalize();
-    x.copy(y).cross(z).normalize();
-    this.palm.quaternion.setFromRotationMatrix(
-      new T.Matrix4().makeBasis(x, y, z),
-    );
-    this.cuff.position.copy(wrist);
-    this.cuff.quaternion.setFromUnitVectors(up, z);
-    const end = wrist.clone().add(this.position),
-      start = new T.Vector3(this.side === "Left" ? -1.5 : 1.5, 0.2, 2.85);
-    this.arm.position.copy(start).lerp(end, 0.5);
-    this.arm.scale.y = start.distanceTo(end);
-    this.arm.quaternion.setFromUnitVectors(up, end.sub(start).normalize());
-  }
-}
-
 export class Kitchen {
   renderer: T.WebGLRenderer;
   scene = new T.Scene();
@@ -189,8 +29,8 @@ export class Kitchen {
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = T.VSMShadowMap;
     this.renderer.setClearColor(0xd3d3cd);
-    this.renderer.toneMapping = T.AgXToneMapping;
-    this.renderer.toneMappingExposure = 1.05;
+    this.renderer.toneMapping = T.NeutralToneMapping;
+    this.renderer.toneMappingExposure = 1.0;
     container.prepend(this.renderer.domElement);
     this.renderer.domElement.setAttribute(
       "aria-label",
@@ -201,11 +41,11 @@ export class Kitchen {
     const room = new RoomEnvironment();
     const pmrem = new T.PMREMGenerator(this.renderer);
     this.scene.environment = pmrem.fromScene(room, 0.04).texture;
-    this.scene.environmentIntensity = 0.8;
+    this.scene.environmentIntensity = 0.7;
     room.dispose();
     pmrem.dispose();
-    this.scene.add(new T.HemisphereLight(0xf4f6fa, 0x8b8174, 0.55));
-    const sun = new T.DirectionalLight(0xfff7ec, 3.0);
+    this.scene.add(new T.HemisphereLight(0xf4f6fa, 0x8b8174, 0.28));
+    const sun = new T.DirectionalLight(0xfff7ec, 2.5);
     sun.position.set(-3, 6, 4);
     sun.castShadow = true;
     sun.shadow.mapSize.set(1024, 1024);
@@ -220,7 +60,7 @@ export class Kitchen {
     this.scene.add(sun);
     this.meshes = buildKitchen(this.scene, this.interaction);
     this.interaction.surfaceHeight = (x, z) =>
-      x > 0.35 && x < 2.25 && z > -1.075 && z < 0.375 ? 0.073 : 0;
+      x > 0.35 && x < 2.25 && z > -1.075 && z < 0.375 ? 0.0655 : 0;
     this.hands = {
       Left: new RobotHand("Left", this.scene),
       Right: new RobotHand("Right", this.scene),
@@ -306,9 +146,15 @@ export class Kitchen {
           !!item.heldBy;
         mesh.traverse((o) => {
           if (o instanceof T.Mesh) {
-            const m = o.material as T.MeshStandardMaterial;
-            m.emissive.setHex(highlighted ? 0x513317 : 0);
-            m.emissiveIntensity = 0.18;
+            const materials = Array.isArray(o.material)
+              ? o.material
+              : [o.material];
+            for (const material of materials) {
+              if (material instanceof T.MeshStandardMaterial) {
+                material.emissive.setHex(highlighted ? 0x513317 : 0);
+                material.emissiveIntensity = 0.18;
+              }
+            }
           }
         });
       }
