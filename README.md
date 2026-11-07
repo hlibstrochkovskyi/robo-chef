@@ -13,6 +13,8 @@ Opens a native window. No web server required. First launch downloads the hand m
 - **Reach:** move up in the video to reach farther across the table. Left/right follows the mirrored preview.
 - **Mouse:** move to reach, hold the primary button to grab, release to drop.
 - **Space:** pause. **R:** reset.
+- **F:** focus the kitchen. **Q / E:** choose the left / right hand in mouse mode.
+- **?:** controls and shortcuts.
 
 First task: put the orange cup in the circle on the cutting board.
 

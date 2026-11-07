@@ -91,7 +91,10 @@ class RobotHand {
     );
     inset.position.set(0, 0.059, 0);
     this.palm.add(inset);
-    this.cuff = new T.Mesh(new T.CylinderGeometry(0.12, 0.13, 0.15, 16), blue);
+    this.cuff = new T.Mesh(
+      new T.CylinderGeometry(0.12, 0.13, 0.15, 16),
+      blue,
+    );
     this.group.add(this.cuff);
     this.arm = new T.Mesh(new T.CylinderGeometry(0.11, 0.15, 1, 12), white);
     this.arm.castShadow = true;
@@ -433,7 +436,7 @@ export class Kitchen {
           const grip = side === this.activeSide && this.mouseGrip;
           hand.demo(grip);
           hand.update(dt);
-          this.interaction.updateHand(side, hand.position, grip);
+          this.interaction.updateHand(side, hand.target, grip);
         } else {
           hand.update(dt);
           if (time - hand.lastSeen > 650) {

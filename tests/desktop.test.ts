@@ -25,9 +25,7 @@ test(
       const window = await app.firstWindow();
       const errors: string[] = [];
       window.on("pageerror", (e) => errors.push(e.message));
-      await window
-        .getByRole("heading", { name: "A little kitchen. All yours." })
-        .waitFor();
+      await window.getByRole("heading", { name: "Robo Chef" }).waitFor();
       assert.equal(window.url(), "app://robo-chef/index.html");
       assert.equal(
         await window.evaluate(async () => {
