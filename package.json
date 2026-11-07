@@ -3,17 +3,22 @@
   "description": "A hand-controlled desktop kitchen playground",
   "author": "hlibstrochkovskyi",
   "license": "UNLICENSED",
+  "desktopName": "robo-chef.desktop",
+  "main": "electron/main.mjs",
   "version": "0.1.0",
   "private": true,
   "type": "module",
   "scripts": {
+    "start": "npm run setup && npm run build && electron .",
+    "package": "npm run setup && npm run build && electron-builder --linux AppImage",
+    "test:desktop": "node --import tsx --test tests/desktop.test.ts",
     "dev": "vite --host 127.0.0.1",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host 127.0.0.1",
     "setup": "node scripts/setup-assets.mjs",
     "test": "tsx --test tests/interaction.test.ts",
     "test:browser": "tsx --test tests/browser.test.ts",
-    "format": "prettier --write src scripts tests package.json tsconfig.json index.html"
+    "format": "prettier --write src tests scripts electron electron-builder.yml package.json tsconfig.json index.html README.md"
   },
   "dependencies": {
     "@fontsource-variable/dm-sans": "^5.3.0",

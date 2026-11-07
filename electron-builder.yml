@@ -1,0 +1,17 @@
+appId: dev.robochef.app
+productName: Robo Chef
+directories:
+  output: release
+files:
+  - dist/**/*
+  - electron/**/*
+  - assets/icon.png
+  - package.json
+asar: true
+linux:
+  syncDesktopName: true
+  target: AppImage
+  category: Game
+  executableName: robo-chef
+  icon: assets/icon.png
+  artifactName: Robo-Chef-${version}-${arch}.${ext}
