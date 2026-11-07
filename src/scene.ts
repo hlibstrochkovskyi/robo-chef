@@ -15,7 +15,7 @@ const material = (color: number, metalness = 0, roughness = 0.6) =>
   new T.MeshStandardMaterial({ color, metalness, roughness });
 const white = material(0xe9eff2, 0.3, 0.32),
   joint = material(0x324957, 0.7, 0.28),
-  blue = material(0x427ded, 0.5, 0.32);
+  accent = material(0x738460, 0.5, 0.32);
 const defaults = (side: Side, grip = false) => {
   const s = side === "Left" ? -1 : 1;
   const p: T.Vector3[] = [new T.Vector3(0, 0, 0.25)];
@@ -87,13 +87,13 @@ class RobotHand {
     this.group.add(this.palm);
     const inset = new T.Mesh(
       new RoundedBoxGeometry(0.23, 0.015, 0.15, 2, 0.015),
-      blue,
+      accent,
     );
     inset.position.set(0, 0.059, 0);
     this.palm.add(inset);
     this.cuff = new T.Mesh(
       new T.CylinderGeometry(0.12, 0.13, 0.15, 16),
-      blue,
+      accent,
     );
     this.group.add(this.cuff);
     this.arm = new T.Mesh(new T.CylinderGeometry(0.11, 0.15, 1, 12), white);
@@ -174,7 +174,7 @@ export class Kitchen {
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = T.PCFShadowMap;
-    this.renderer.setClearColor(0xdbe7ec);
+    this.renderer.setClearColor(0xd5d9cc);
     this.renderer.toneMapping = T.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.25;
     container.prepend(this.renderer.domElement);
@@ -256,16 +256,16 @@ export class Kitchen {
         -2.25 + i * 0.165,
         0.001,
       );
-    this.box(7, 1.4, 4.4, 0x607e88, 0, -0.86, 0);
+    this.box(7, 1.4, 4.4, 0x65725d, 0, -0.86, 0);
     for (let x = -2.8; x <= 2.8; x += 1.4) {
-      this.box(1.34, 1.15, 0.045, 0x72949c, x, -0.82, 2.23);
+      this.box(1.34, 1.15, 0.045, 0x87937b, x, -0.82, 2.23);
       this.box(0.34, 0.035, 0.07, 0xc6d0cb, x, -0.38, 2.28);
     }
-    this.box(11, 5, 0.15, 0xdbe7e8, 0, 1.4, -2.8);
+    this.box(11, 5, 0.15, 0xdce0d5, 0, 1.4, -2.8);
     for (let x = -5; x <= 5; x += 0.55)
-      this.box(0.008, 2.8, 0.01, 0xc6d7d9, x, 1.25, -2.71, 0.001);
+      this.box(0.008, 2.8, 0.01, 0xc4ccba, x, 1.25, -2.71, 0.001);
     for (let y = 0; y < 3; y += 0.3)
-      this.box(10, 0.008, 0.01, 0xc6d7d9, 0, y, -2.71, 0.001);
+      this.box(10, 0.008, 0.01, 0xc4ccba, 0, y, -2.71, 0.001);
     this.box(2.3, 0.1, 0.55, 0xa88961, -1.8, 1.65, -2.42);
     for (let i = 0; i < 3; i++) {
       const jar = new T.Mesh(
