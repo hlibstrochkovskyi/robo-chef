@@ -8,14 +8,16 @@ import {
   clamp,
 } from "./hand-input";
 import { Interaction } from "./interaction";
+import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
+import { buildKitchen } from "./kitchen-assets";
 
 const V = (p: Point) => new T.Vector3(p.x, p.y, p.z);
 const up = new T.Vector3(0, 1, 0);
 const material = (color: number, metalness = 0, roughness = 0.6) =>
   new T.MeshStandardMaterial({ color, metalness, roughness });
-const white = material(0xe9eff2, 0.3, 0.32),
-  joint = material(0x324957, 0.7, 0.28),
-  accent = material(0x738460, 0.5, 0.32);
+const white = material(0xc9cdd0, 0.65, 0.38),
+  joint = material(0x30373c, 0.65, 0.38),
+  accent = material(0x55616b, 0.65, 0.32);
 const defaults = (side: Side, grip = false) => {
   const s = side === "Left" ? -1 : 1;
   const p: T.Vector3[] = [new T.Vector3(0, 0, 0.25)];
@@ -49,7 +51,7 @@ class RobotHand {
   joints: T.Mesh[] = [];
   palm: T.Mesh;
   cuff: T.Mesh;
-  arm: T.Mesh;
+  arm: T.Group;
   position: T.Vector3;
   target: T.Vector3;
   lastSeen = 0;
@@ -64,7 +66,7 @@ class RobotHand {
     this.target = this.position.clone();
     for (const _ of CONNECTIONS) {
       const bone = new T.Mesh(
-        new T.CylinderGeometry(0.036, 0.041, 1, 8),
+        new T.CylinderGeometry(0.034, 0.04, 1, 12),
         white,
       );
       bone.castShadow = true;
@@ -73,7 +75,7 @@ class RobotHand {
     }
     for (let i = 0; i < 21; i++) {
       const dot = new T.Mesh(
-        new T.SphereGeometry(i === 0 ? 0.07 : 0.045, 10, 8),
+        new T.SphereGeometry(i === 0 ? 0.07 : 0.043, 16, 12),
         joint,
       );
       this.group.add(dot);
@@ -96,8 +98,23 @@ class RobotHand {
       accent,
     );
     this.group.add(this.cuff);
-    this.arm = new T.Mesh(new T.CylinderGeometry(0.11, 0.15, 1, 12), white);
-    this.arm.castShadow = true;
+    this.arm = new T.Group();
+    const core = new T.Mesh(new T.CylinderGeometry(0.075, 0.09, 1, 16), joint);
+    const shell = new T.Mesh(
+      new RoundedBoxGeometry(0.185, 0.76, 0.17, 3, 0.045),
+      white,
+    );
+    const wristRing = new T.Mesh(
+      new T.CylinderGeometry(0.1, 0.1, 0.08, 24),
+      accent,
+    );
+    wristRing.position.y = 0.44;
+    const elbowRing = wristRing.clone();
+    elbowRing.position.y = -0.44;
+    this.arm.add(core, shell, wristRing, elbowRing);
+    this.arm.traverse((object) => {
+      if (object instanceof T.Mesh) object.castShadow = true;
+    });
     scene.add(this.arm);
     scene.add(this.group);
   }
@@ -143,7 +160,7 @@ class RobotHand {
     this.cuff.position.copy(wrist);
     this.cuff.quaternion.setFromUnitVectors(up, z);
     const end = wrist.clone().add(this.position),
-      start = new T.Vector3(this.side === "Left" ? -1.65 : 1.65, -0.55, 3.05);
+      start = new T.Vector3(this.side === "Left" ? -1.5 : 1.5, 0.2, 2.85);
     this.arm.position.copy(start).lerp(end, 0.5);
     this.arm.scale.y = start.distanceTo(end);
     this.arm.quaternion.setFromUnitVectors(up, end.sub(start).normalize());
@@ -159,43 +176,49 @@ export class Kitchen {
   meshes = new Map<string, T.Group>();
   pointer = new T.Vector2();
   raycaster = new T.Raycaster();
-  target = new T.Vector3(1.3, 0.01, -0.35);
   onFrame: () => void = () => {};
-  onProgress: (done: boolean) => void = () => {};
   paused = false;
   mode: "mouse" | "camera" = "mouse";
   mouseGrip = false;
   activeSide: Side = "Right";
   private last = 0;
-  private complete = false;
   private resizeObserver: ResizeObserver;
   constructor(public container: HTMLElement) {
     this.renderer = new T.WebGLRenderer({ antialias: true });
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
     this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = T.PCFShadowMap;
-    this.renderer.setClearColor(0xd5d9cc);
-    this.renderer.toneMapping = T.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.25;
+    this.renderer.shadowMap.type = T.VSMShadowMap;
+    this.renderer.setClearColor(0xd3d3cd);
+    this.renderer.toneMapping = T.AgXToneMapping;
+    this.renderer.toneMappingExposure = 1.05;
     container.prepend(this.renderer.domElement);
     this.renderer.domElement.setAttribute(
       "aria-label",
       "Virtual kitchen. Move the mouse and hold the primary button to carry objects.",
     );
-    this.camera.position.set(0, 4.45, 5.7);
-    this.camera.lookAt(0, 0.15, -0.3);
-    this.scene.add(new T.HemisphereLight(0xf6fbff, 0x8d9b96, 3));
-    const sun = new T.DirectionalLight(0xfff4df, 4);
-    sun.position.set(-3, 7, 3);
+    this.camera.position.set(0, 3.8, 4.6);
+    this.camera.lookAt(0, 0.1, 0.15);
+    const room = new RoomEnvironment();
+    const pmrem = new T.PMREMGenerator(this.renderer);
+    this.scene.environment = pmrem.fromScene(room, 0.04).texture;
+    this.scene.environmentIntensity = 0.8;
+    room.dispose();
+    pmrem.dispose();
+    this.scene.add(new T.HemisphereLight(0xf4f6fa, 0x8b8174, 0.55));
+    const sun = new T.DirectionalLight(0xfff7ec, 3.0);
+    sun.position.set(-3, 6, 4);
     sun.castShadow = true;
-    sun.shadow.mapSize.set(2048, 2048);
+    sun.shadow.mapSize.set(1024, 1024);
     sun.shadow.camera.left = -5;
     sun.shadow.camera.right = 5;
     sun.shadow.camera.top = 5;
     sun.shadow.camera.bottom = -5;
-    sun.shadow.bias = -0.0006;
+    sun.shadow.bias = -0.00008;
+    sun.shadow.normalBias = 0.005;
+    sun.shadow.radius = 3;
+    sun.shadow.blurSamples = 8;
     this.scene.add(sun);
-    this.buildRoom();
+    this.meshes = buildKitchen(this.scene, this.interaction);
     this.interaction.surfaceHeight = (x, z) =>
       x > 0.35 && x < 2.25 && z > -1.075 && z < 0.375 ? 0.073 : 0;
     this.hands = {
@@ -220,176 +243,6 @@ export class Kitchen {
     canvas.addEventListener("pointercancel", release);
     window.addEventListener("blur", release);
     this.renderer.setAnimationLoop((t) => this.animate(t));
-  }
-  box(
-    w: number,
-    h: number,
-    d: number,
-    color: number,
-    x: number,
-    y: number,
-    z: number,
-    r = 0.025,
-    parent: T.Object3D = this.scene,
-  ) {
-    const mesh = new T.Mesh(
-      new RoundedBoxGeometry(w, h, d, 2, r),
-      material(color),
-    );
-    mesh.position.set(x, y, z);
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
-    parent.add(mesh);
-    return mesh;
-  }
-  buildRoom() {
-    this.box(7, 0.16, 4.7, 0xd9c6a5, 0, -0.09, 0);
-    // Light oak strips give the worktop a little grain without external textures.
-    for (let i = 0; i < 28; i++)
-      this.box(
-        6.96,
-        0.002,
-        0.006,
-        i % 3 === 0 ? 0xbda47d : 0xcdb68f,
-        0,
-        0.001,
-        -2.25 + i * 0.165,
-        0.001,
-      );
-    this.box(7, 1.4, 4.4, 0x65725d, 0, -0.86, 0);
-    for (let x = -2.8; x <= 2.8; x += 1.4) {
-      this.box(1.34, 1.15, 0.045, 0x87937b, x, -0.82, 2.23);
-      this.box(0.34, 0.035, 0.07, 0xc6d0cb, x, -0.38, 2.28);
-    }
-    this.box(11, 5, 0.15, 0xdce0d5, 0, 1.4, -2.8);
-    for (let x = -5; x <= 5; x += 0.55)
-      this.box(0.008, 2.8, 0.01, 0xc4ccba, x, 1.25, -2.71, 0.001);
-    for (let y = 0; y < 3; y += 0.3)
-      this.box(10, 0.008, 0.01, 0xc4ccba, 0, y, -2.71, 0.001);
-    this.box(2.3, 0.1, 0.55, 0xa88961, -1.8, 1.65, -2.42);
-    for (let i = 0; i < 3; i++) {
-      const jar = new T.Mesh(
-        new T.CylinderGeometry(0.12, 0.12, 0.27, 20),
-        material([0xbcc8b9, 0xd9a774, 0xf0eee2][i]),
-      );
-      jar.position.set(-2.35 + i * 0.44, 1.83, -2.4);
-      jar.castShadow = true;
-      this.scene.add(jar);
-      this.box(0.25, 0.045, 0.25, 0x87745f, -2.35 + i * 0.44, 1.99, -2.4);
-    }
-    this.box(1.5, 0.055, 1.5, 0x283e49, -2, 0.04, -1.13);
-    for (const x of [-2.35, -1.65]) {
-      const ring = new T.Mesh(
-        new T.TorusGeometry(0.25, 0.009, 8, 48),
-        material(0x728b91),
-      );
-      ring.rotation.x = -Math.PI / 2;
-      ring.position.set(x, 0.075, -1.17);
-      this.scene.add(ring);
-    }
-    const pan = new T.Mesh(
-      new T.CylinderGeometry(0.36, 0.3, 0.1, 40),
-      material(0x384b53, 0.6),
-    );
-    pan.position.set(-2.05, 0.14, -1.15);
-    this.scene.add(pan);
-    this.box(0.55, 0.055, 0.12, 0x263943, -1.49, 0.16, -1.15);
-    this.box(1.9, 0.055, 1.45, 0xb99260, 1.3, 0.045, -0.35, 0.1);
-    this.box(0.28, 0.065, 0.6, 0xb99260, 1.3, 0.045, 0.54, 0.08);
-    const targetRing = new T.Mesh(
-      new T.TorusGeometry(0.4, 0.013, 8, 64),
-      material(0xeaf6e5),
-    );
-    targetRing.rotation.x = -Math.PI / 2;
-    targetRing.position.copy(this.target).setY(0.08);
-    this.scene.add(targetRing);
-    const pot = new T.Mesh(
-      new T.CylinderGeometry(0.22, 0.16, 0.38, 24),
-      material(0xe9e4d6),
-    );
-    pot.position.set(2.6, 0.19, -1.8);
-    this.scene.add(pot);
-    for (let i = 0; i < 9; i++) {
-      const leaf = new T.Mesh(
-        new T.SphereGeometry(1, 12, 10),
-        material(i % 2 ? 0x668c54 : 0x8ba967),
-      );
-      leaf.scale.set(0.1, 0.32, 0.07);
-      leaf.position.set(
-        2.6 + Math.sin(i * 2.4) * 0.17,
-        0.48 + Math.cos(i * 3) * 0.1,
-        -1.8 + Math.cos(i * 2.4) * 0.13,
-      );
-      leaf.rotation.z = Math.sin(i * 2.4) * 0.65;
-      this.scene.add(leaf);
-    }
-    const mug = new T.Group();
-    const ceramic = material(0xe58a51, 0.05, 0.3);
-    const body = new T.Mesh(
-      new T.CylinderGeometry(0.22, 0.19, 0.44, 40, 1, true),
-      ceramic,
-    );
-    mug.add(body);
-    const bottom = new T.Mesh(
-      new T.CylinderGeometry(0.19, 0.19, 0.035, 40),
-      ceramic,
-    );
-    bottom.position.y = -0.2;
-    mug.add(bottom);
-    const inner = new T.Mesh(
-      new T.CylinderGeometry(0.203, 0.175, 0.4, 40, 1, true),
-      material(0xf4c6a1),
-    );
-    inner.material.side = T.BackSide;
-    inner.position.y = 0.015;
-    mug.add(inner);
-    const lip = new T.Mesh(new T.TorusGeometry(0.211, 0.012, 10, 48), ceramic);
-    lip.rotation.x = Math.PI / 2;
-    lip.position.y = 0.22;
-    mug.add(lip);
-    const handle = new T.Mesh(
-      new T.TorusGeometry(0.135, 0.035, 12, 32, Math.PI * 1.6),
-      ceramic,
-    );
-    handle.position.x = 0.22;
-    handle.rotation.z = -Math.PI * 0.8;
-    mug.add(handle);
-    mug.traverse((o) => {
-      if (o instanceof T.Mesh) o.castShadow = true;
-    });
-    this.scene.add(mug);
-    this.meshes.set("mug", mug);
-    this.interaction.add("mug", { x: -0.65, y: 0.24, z: 0.25 }, 0.23);
-    const tomato = new T.Group();
-    const fruit = new T.Mesh(
-      new T.SphereGeometry(0.18, 24, 20),
-      material(0xd75d47, 0.05, 0.4),
-    );
-    fruit.scale.y = 0.85;
-    tomato.add(fruit);
-    for (let i = 0; i < 5; i++) {
-      const leaf = new T.Mesh(
-        new T.ConeGeometry(0.045, 0.15, 3),
-        material(0x58734d),
-      );
-      leaf.rotation.z = Math.PI / 2;
-      leaf.rotation.y = (i * Math.PI * 2) / 5;
-      leaf.position.y = 0.15;
-      tomato.add(leaf);
-    }
-    this.scene.add(tomato);
-    this.meshes.set("tomato", tomato);
-    this.interaction.add("tomato", { x: 0.2, y: 0.17, z: -0.8 }, 0.18);
-    const egg = new T.Group();
-    const shell = new T.Mesh(
-      new T.SphereGeometry(0.13, 24, 20),
-      material(0xe9ddc6),
-    );
-    shell.scale.y = 1.35;
-    egg.add(shell);
-    this.scene.add(egg);
-    this.meshes.set("egg", egg);
-    this.interaction.add("egg", { x: -0.3, y: 0.18, z: -1.1 }, 0.14);
   }
   resize() {
     const { width, height } = this.container.getBoundingClientRect();
@@ -421,8 +274,6 @@ export class Kitchen {
   }
   reset() {
     this.interaction.reset();
-    this.complete = false;
-    this.onProgress(false);
     this.mouseGrip = false;
   }
   animate(time: number) {
@@ -460,18 +311,6 @@ export class Kitchen {
             m.emissiveIntensity = 0.18;
           }
         });
-      }
-      const mug = this.interaction.items.find((i) => i.id === "mug")!;
-      const done =
-        !mug.heldBy &&
-        mug.position.y < 0.34 &&
-        Math.hypot(
-          mug.position.x - this.target.x,
-          mug.position.z - this.target.z,
-        ) < 0.37;
-      if (done && !this.complete) {
-        this.complete = true;
-        this.onProgress(true);
       }
     }
     this.renderer.render(this.scene, this.camera);
