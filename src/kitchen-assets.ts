@@ -1,6 +1,7 @@
 import * as T from "three";
 import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
 import type { Interaction } from "./interaction";
+import { createMug, createTomato, createEgg } from "./kitchen-props";
 
 const surface = (color: number, roughness = 0.6, metalness = 0) =>
   new T.MeshStandardMaterial({ color, roughness, metalness });
@@ -111,8 +112,17 @@ function cuttingBoard(material: T.Material) {
       bevelThickness: 0.012,
       curveSegments: 24,
     }),
-    material,
+    [material, surface(0x68472e, 0.65)],
   );
+  const positions = mesh.geometry.getAttribute("position"),
+    uv = mesh.geometry.getAttribute("uv");
+  for (let i = 0; i < positions.count; i++)
+    uv.setXY(
+      i,
+      (positions.getX(i) + 0.97) / 1.94,
+      (positions.getY(i) + 1.18) / 1.89,
+    );
+  mesh.name = "Cutting board";
   mesh.rotation.x = -Math.PI / 2;
   mesh.position.set(1.3, 0.018, -0.35);
   mesh.castShadow = true;
@@ -167,12 +177,34 @@ export function buildKitchen(scene: T.Scene, interaction: Interaction) {
     ],
     surface(0x2e3233, 0.57, 0.6),
   );
-  pan.position.set(-2.05, 0.055, -1.15);
+  pan.position.set(-2.05, 0.025, -1.15);
   scene.add(pan);
+  const panLip = new T.Mesh(new T.TorusGeometry(0.39, 0.006, 8, 64), steel);
+  panLip.rotation.x = -Math.PI / 2;
+  panLip.position.set(-2.05, 0.185, -1.15);
+  scene.add(panLip);
   box(scene, [0.16, 0.035, 0.095], [-1.61, 0.16, -1.15], steel, 0.01);
   box(scene, [0.55, 0.055, 0.105], [-1.29, 0.16, -1.15], graphite, 0.035);
-  const boardMaterial = surface(0xffffff, 0.65);
-  boardMaterial.map = texture("wood");
+  const boardMaterial = surface(0xffffff, 0.85);
+  scene.userData.texturesLoaded = false;
+  const loading = new T.LoadingManager();
+  loading.onLoad = () => {
+    scene.userData.texturesLoaded = true;
+  };
+  const loader = new T.TextureLoader(loading);
+  function woodMap(file: string, color = false) {
+    const map = loader.load(
+      `${import.meta.env.BASE_URL}textures/wood/${file}.jpg`,
+    );
+    if (color) map.colorSpace = T.SRGBColorSpace;
+    map.wrapS = map.wrapT = T.RepeatWrapping;
+    map.anisotropy = 8;
+    return map;
+  }
+  boardMaterial.map = woodMap("color", true);
+  boardMaterial.normalMap = woodMap("normal");
+  boardMaterial.normalScale.set(0.18, 0.18);
+  boardMaterial.roughnessMap = woodMap("roughness");
   scene.add(cuttingBoard(boardMaterial));
 
   const crock = lathe(
@@ -234,97 +266,21 @@ export function buildKitchen(scene: T.Scene, interaction: Interaction) {
   lid.castShadow = true;
   scene.add(lid);
 
-  const mug = new T.Group();
-  const ceramic = surface(0xb56c42, 0.22);
-  const body = lathe(
-    [
-      [0, -0.22],
-      [0.16, -0.22],
-      [0.183, -0.205],
-      [0.217, 0.19],
-      [0.218, 0.212],
-      [0.212, 0.222],
-      [0.202, 0.223],
-      [0.193, 0.21],
-      [0.17, -0.16],
-      [0.15, -0.18],
-      [0, -0.18],
-    ],
-    ceramic,
-  );
-  mug.add(body);
-
-  const handle = new T.Mesh(new T.TorusGeometry(0.14, 0.033, 16, 56), ceramic);
-  handle.scale.y = 1.16;
-  handle.position.set(0.248, 0.015, 0);
-  handle.castShadow = true;
-  mug.add(handle);
-  scene.add(mug);
-  objects.set("mug", mug);
-  interaction.add("mug", { x: -0.65, y: 0.24, z: 0.25 }, 0.23);
-
-  const tomato = new T.Group();
-  const fruitGeometry = new T.SphereGeometry(0.18, 40, 28);
-  const vertices = fruitGeometry.getAttribute("position");
-  for (let i = 0; i < vertices.count; i++) {
-    const x = vertices.getX(i),
-      y = vertices.getY(i),
-      z = vertices.getZ(i);
-    const lobe = 1 + Math.cos(Math.atan2(z, x) * 5) * 0.025;
-    vertices.setXYZ(i, x * lobe, y * 0.88, z * lobe);
+  function place(
+    id: string,
+    object: T.Group,
+    x: number,
+    z: number,
+    radius: number,
+  ) {
+    const bounds = new T.Box3().setFromObject(object);
+    const height = 0.0145 - bounds.min.y + 0.001;
+    scene.add(object);
+    objects.set(id, object);
+    interaction.add(id, { x, y: height, z }, radius);
   }
-  fruitGeometry.computeVertexNormals();
-  const fruit = new T.Mesh(fruitGeometry, surface(0xb93325, 0.34));
-  fruit.castShadow = true;
-  tomato.add(fruit);
-  const leafShape = new T.Shape();
-  leafShape.moveTo(0, 0);
-  leafShape.quadraticCurveTo(0.04, 0.045, 0, 0.14);
-  leafShape.quadraticCurveTo(-0.04, 0.045, 0, 0);
-  const leafMaterial = surface(0x486044, 0.76);
-  leafMaterial.side = T.DoubleSide;
-  for (let i = 0; i < 5; i++) {
-    const leaf = new T.Mesh(new T.ShapeGeometry(leafShape), leafMaterial);
-    leaf.rotation.x = -Math.PI / 2;
-    leaf.rotation.z = (i * Math.PI * 2) / 5;
-    const pivot = new T.Group();
-    pivot.rotation.y = (i * Math.PI * 2) / 5;
-    leaf.rotation.z = 0;
-    pivot.add(leaf);
-    pivot.position.y = 0.147;
-    tomato.add(pivot);
-  }
-  bar(
-    tomato,
-    new T.Vector3(0, 0.145, 0),
-    new T.Vector3(0.015, 0.2, 0),
-    0.009,
-    leafMaterial,
-  );
-  scene.add(tomato);
-  objects.set("tomato", tomato);
-  interaction.add("tomato", { x: 0.2, y: 0.17, z: -0.8 }, 0.18);
-
-  const egg = new T.Group();
-  const eggGeometry = new T.SphereGeometry(0.13, 36, 28);
-  const eggVertices = eggGeometry.getAttribute("position");
-  for (let i = 0; i < eggVertices.count; i++) {
-    const y = eggVertices.getY(i);
-    const taper = 1 - (y / 0.13) * 0.16;
-    eggVertices.setXYZ(
-      i,
-      eggVertices.getX(i) * taper,
-      y * 1.34,
-      eggVertices.getZ(i) * taper,
-    );
-  }
-  eggGeometry.computeVertexNormals();
-  const shell = new T.Mesh(eggGeometry, surface(0xd5c1a3, 0.64));
-  shell.castShadow = true;
-  shell.rotation.z = 0.18;
-  egg.add(shell);
-  scene.add(egg);
-  objects.set("egg", egg);
-  interaction.add("egg", { x: -0.3, y: 0.18, z: -1.1 }, 0.14);
+  place("mug", createMug(), -0.65, 0.25, 0.23);
+  place("tomato", createTomato(), 0.2, -0.8, 0.18);
+  place("egg", createEgg(), -0.3, -1.1, 0.14);
   return objects;
 }

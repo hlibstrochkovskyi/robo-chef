@@ -40,7 +40,34 @@ test(
       page.on("pageerror", (e) => errors.push(e.message));
       await page.goto(server.resolvedUrls!.local[0]);
       await page.waitForFunction(() => !!(window as any).__kitchen);
+      await page.waitForFunction(
+        () => (window as any).__kitchen.scene.userData.texturesLoaded,
+      );
       await page.screenshot({ path: "/tmp/robo-chef-desktop.png" });
+      await page.evaluate(() => {
+        const k = (window as any).__kitchen;
+        k.scene.userData.reviewCamera = k.camera.clone();
+        k.camera.position.set(2.0, 1.55, 2.05);
+        k.camera.lookAt(1.45, 0.65, 1.22);
+      });
+      await page
+        .locator("#scene")
+        .screenshot({ path: "/tmp/robo-chef-hand-detail.png" });
+      await page.evaluate(() => {
+        const k = (window as any).__kitchen;
+        k.camera.position.set(-0.05, 0.78, 1.02);
+        k.camera.lookAt(-0.65, 0.25, 0.25);
+      });
+      await page
+        .locator("#scene")
+        .screenshot({ path: "/tmp/robo-chef-cup-detail.png" });
+      await page.evaluate(() => {
+        const k = (window as any).__kitchen;
+        k.camera.copy(k.scene.userData.reviewCamera);
+        k.camera.updateProjectionMatrix();
+        delete k.scene.userData.reviewCamera;
+      });
+
       assert.equal(
         await page.evaluate(
           () => document.documentElement.scrollHeight <= innerHeight,

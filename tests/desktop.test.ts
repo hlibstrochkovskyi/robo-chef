@@ -29,6 +29,23 @@ test(
       assert.equal(window.url(), "app://robo-chef/index.html");
       assert.equal(
         await window.evaluate(async () => {
+          const results = await Promise.all(
+            ["color", "normal", "roughness"].map(async (name) => {
+              const response = await fetch(
+                `app://robo-chef/textures/wood/${name}.jpg`,
+              );
+              return (
+                response.ok && (await response.arrayBuffer()).byteLength > 1000
+              );
+            }),
+          );
+          return results.every(Boolean);
+        }),
+        true,
+      );
+
+      assert.equal(
+        await window.evaluate(async () => {
           try {
             const stream = await navigator.mediaDevices.getUserMedia({
               audio: true,
