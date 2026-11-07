@@ -31,7 +31,7 @@ function createWindow() {
     minHeight: 700,
     title: "Robo Chef",
     icon: join(app.getAppPath(), "assets/icon.png"),
-    backgroundColor: "#e3e5de",
+    backgroundColor: "#242629",
     show: false,
     webPreferences: {
       contextIsolation: true,

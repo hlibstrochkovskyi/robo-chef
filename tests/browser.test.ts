@@ -5,7 +5,7 @@ import { createServer } from "vite";
 import { existsSync } from "node:fs";
 
 test(
-  "kitchen renders, mouse completes the task, camera model starts, and pause/reset work",
+  "free kitchen supports objects, camera, focus, and pause without task UI",
   { timeout: 90000 },
   async () => {
     const server = await createServer({
@@ -101,7 +101,20 @@ test(
       await page.mouse.move(points.target.x, points.target.y, { steps: 25 });
       await page.waitForTimeout(400);
       await page.mouse.up();
-      await page.getByRole("heading", { name: "Cup placed" }).waitFor();
+      await page.waitForFunction(() => {
+        const cup = (window as any).__kitchen.interaction.items[0];
+        return (
+          cup.heldBy === null &&
+          Math.abs(cup.position.x - 1.3) < 0.1 &&
+          cup.position.y < 0.34
+        );
+      });
+      assert.equal(
+        await page
+          .locator(".task, #mission-title, #scene-hint, .statusbar")
+          .count(),
+        0,
+      );
       await page.keyboard.press("Space");
       await page
         .getByRole("heading", { name: "Paused", exact: true })
@@ -109,9 +122,25 @@ test(
       await page.screenshot({ path: "/tmp/robo-chef-paused.png" });
       await page.keyboard.press("Space");
       assert.equal(await page.locator("#paused-overlay").isVisible(), false);
-      await page.getByRole("button", { name: "Reset table" }).click();
-      await page.getByRole("heading", { name: "Place the cup" }).waitFor();
-      await page.getByRole("button", { name: "Hands", exact: true }).click();
+      await page.getByRole("button", { name: "Reset", exact: true }).click();
+      await page.waitForFunction(
+        () =>
+          (window as any).__kitchen.interaction.items[0].position.x === -0.65,
+      );
+      const separator = page.getByRole("separator", { name: "Resize camera" });
+      await separator.focus();
+      const before = await page
+        .locator(".input-panel")
+        .evaluate((node) => node.getBoundingClientRect().width);
+      await page.keyboard.press("ArrowRight");
+      assert.ok(
+        (await page
+          .locator(".input-panel")
+          .evaluate((node) => node.getBoundingClientRect().width)) > before,
+      );
+      await page
+        .getByRole("button", { name: "Start camera", exact: true })
+        .click();
       await page.waitForFunction(
         () => document.getElementById("camera-status")?.textContent === "Live",
         {},
@@ -120,17 +149,19 @@ test(
       await page.waitForTimeout(1000);
       assert.equal(
         await page.locator("#tracking-note").textContent(),
-        "Hands out of view. Move them into the camera.",
+        "No hands detected",
       );
       assert.equal(
-        await page.locator("#mode-hands").getAttribute("aria-pressed"),
-        "true",
+        await page.evaluate(() => (window as any).__kitchen.mode),
+        "camera",
       );
       assert.equal(await page.locator("#mouse-switch").isVisible(), false);
-      await page.getByRole("button", { name: "Mouse", exact: true }).click();
+      await page
+        .getByRole("button", { name: "Stop camera", exact: true })
+        .click();
       assert.equal(
-        await page.locator("#mode-mouse").getAttribute("aria-pressed"),
-        "true",
+        await page.evaluate(() => (window as any).__kitchen.mode),
+        "mouse",
       );
       assert.equal(await page.locator("#camera-status").textContent(), "Off");
       assert.equal(
@@ -163,24 +194,28 @@ test(
         navigator.mediaDevices.getUserMedia = () =>
           Promise.reject(new DOMException("Denied", "NotAllowedError"));
       });
-      await page.getByRole("button", { name: "Hands", exact: true }).click();
+      await page
+        .getByRole("button", { name: "Start camera", exact: true })
+        .click();
       await page
         .getByText(
           "Camera access denied. Check camera permissions and try again.",
         )
         .waitFor();
       assert.equal(
-        await page.locator("#mode-mouse").getAttribute("aria-pressed"),
-        "true",
+        await page.evaluate(() => (window as any).__kitchen.mode),
+        "mouse",
       );
       await page.evaluate(() => {
         navigator.mediaDevices.getUserMedia = () => new Promise(() => {});
       });
-      await page.getByRole("button", { name: "Hands", exact: true }).click();
+      await page
+        .getByRole("button", { name: "Start camera", exact: true })
+        .click();
       await page.getByRole("button", { name: "Cancel", exact: true }).click();
       assert.equal(await page.locator("#camera-status").textContent(), "Off");
       assert.equal(
-        await page.getByRole("button", { name: "Enable camera" }).isVisible(),
+        await page.getByRole("button", { name: "Start camera" }).isVisible(),
         true,
       );
       assert.deepEqual(errors, []);

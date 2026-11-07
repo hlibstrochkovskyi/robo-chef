@@ -16,7 +16,7 @@ Opens a native window. No web server required. First launch downloads the hand m
 - **F:** focus the kitchen. **Q / E:** choose the left / right hand in mouse mode.
 - **?:** controls and shortcuts.
 
-First task: put the orange cup in the circle on the cutting board.
+Free interaction with the cup, tomato, and egg. Drag the divider to resize the camera view.
 
 ```sh
 npm test

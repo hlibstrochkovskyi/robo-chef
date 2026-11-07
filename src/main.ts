@@ -14,7 +14,7 @@ try {
 } catch {
   el("scene").innerHTML =
     '<div class="scene-error"><h2>Graphics unavailable</h2><p>Enable hardware acceleration and restart Robo Chef.</p></div>';
-  for (const id of ["start", "mode-hands", "pause", "reset", "fullscreen"])
+  for (const id of ["start", "pause", "reset", "fullscreen"])
     el<HTMLButtonElement>(id).disabled = true;
   throw new Error("WebGL is unavailable.");
 }
@@ -25,112 +25,85 @@ const tracking = new Tracking(
 let toastTimer: ReturnType<typeof setTimeout>;
 let cameraAttempt = 0;
 let cameraStarting = false;
-let taskPicked = false;
-let taskComplete = false;
-
 function toast(message: string) {
   el("toast").textContent = message;
   el("toast").hidden = false;
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => (el("toast").hidden = true), 4000);
-}
-function setModeIndicator(mode: "hands" | "mouse") {
-  document
-    .querySelector(".input-panel")!
-    .classList.toggle("using-hands", mode === "hands");
-  el("mode-hands").setAttribute("aria-pressed", String(mode === "hands"));
-  el("mode-mouse").setAttribute("aria-pressed", String(mode === "mouse"));
-  el("input-status").textContent =
-    mode === "hands" ? "Hand control" : "Mouse control";
-  el("mouse-switch").hidden = mode === "hands";
-  el("help").textContent =
-    mode === "hands"
-      ? "Pinch to grab · Open to place · Move up to reach farther"
-      : "Move to reach · Hold to grab · Release to place";
+  toastTimer = setTimeout(() => (el("toast").hidden = true), 2500);
 }
 function stopCamera() {
   cameraAttempt++;
   tracking.stop();
   cameraStarting = false;
   kitchen.setMode("mouse");
-  setModeIndicator("mouse");
   el("camera-empty").hidden = false;
+  el("camera-title").textContent = "Camera off";
   el("camera-live").hidden = true;
+  el("hand-states").hidden = true;
   el("stop").hidden = true;
   el("start").hidden = false;
-  el<HTMLButtonElement>("start").disabled = false;
   el("camera-status").textContent = "Off";
   el("camera-status").classList.remove("live");
-  el("scene-hint").textContent = "Move to reach. Hold to pick up.";
-  el("tracking-note").textContent = "Enable your camera to use your hands.";
+  el("tracking-note").textContent = "Mouse control";
   el("tracking-note").classList.remove("error");
+  el("mouse-switch").hidden = false;
+  el("calibrate").hidden = true;
   el<HTMLButtonElement>("calibrate").disabled = true;
-  el("calibration-note").textContent =
-    "Hold your palms open in a comfortable position.";
-  for (const side of ["Left", "Right"] as Side[]) {
-    const row = el(`hand-${side.toLowerCase()}`);
-    row.classList.remove("detected");
-    row.querySelector("b")!.textContent = "Not connected";
-  }
 }
 async function startCamera() {
   if (cameraStarting || tracking.running) return;
   const attempt = ++cameraAttempt;
   cameraStarting = true;
+  kitchen.setMode("camera");
   el("start").hidden = true;
   el("stop").hidden = false;
-  el("stop").innerHTML = `${icon("close")}Cancel`;
+  el("stop").textContent = "Cancel";
   el("camera-status").textContent = "Connecting";
+  el("camera-title").textContent = "Connecting…";
   el("tracking-note").classList.remove("error");
-  el("tracking-note").textContent = "Preparing your camera and hand tracking…";
-  setModeIndicator("hands");
-  kitchen.setMode("camera");
+  el("tracking-note").textContent = "Preparing hand tracking…";
+  el("mouse-switch").hidden = true;
   try {
     await tracking.start();
     if (attempt !== cameraAttempt || !tracking.running) return;
-    kitchen.setMode("camera");
     el("camera-empty").hidden = true;
     el("camera-live").hidden = false;
-    el("stop").innerHTML = `${icon("camera")}Turn off camera`;
+    el("hand-states").hidden = false;
+    el("stop").textContent = "Stop camera";
     el("camera-status").textContent = "Live";
     el("camera-status").classList.add("live");
-    el("tracking-note").textContent = "Show both open palms, then calibrate.";
-    el("scene-hint").textContent = "Pinch near an object to pick it up.";
+    el("calibrate").hidden = false;
+    el("tracking-note").textContent = "Show your hands";
   } catch (error) {
     if (attempt !== cameraAttempt) return;
     stopCamera();
     const name = error instanceof Error ? error.name : "";
-    const message =
+    el("tracking-note").textContent =
       name === "NotAllowedError"
         ? "Camera access denied. Check camera permissions and try again."
         : name === "NotFoundError"
-          ? "No camera found. Connect a webcam to use hand control."
+          ? "No camera found. Connect a webcam."
           : name === "NotReadableError"
-            ? "Camera is busy. Close other camera apps and try again."
-            : "Hand tracking could not start. Restart the app and try again.";
-    el("tracking-note").textContent = message;
+            ? "Camera is busy. Close other camera apps."
+            : "Hand tracking could not start. Restart the app to retry.";
     el("tracking-note").classList.add("error");
   } finally {
     if (attempt === cameraAttempt) cameraStarting = false;
   }
 }
 el("start").onclick = startCamera;
-el("mode-hands").onclick = startCamera;
 el("stop").onclick = stopCamera;
-el("mode-mouse").onclick = () => {
-  if (tracking.running || cameraStarting) stopCamera();
-};
 tracking.onEnded = () => {
   stopCamera();
-  toast("Camera disconnected. Mouse control is ready.");
+  toast("Camera disconnected.");
 };
 let lastStats = 0;
 tracking.onHands = (hands) => {
   const now = performance.now();
   for (const hand of hands) {
     const robot = kitchen.hands[hand.side];
-    const position = tracking.position(hand);
-    robot.target.set(position.x, position.y, position.z);
+    const p = tracking.position(hand);
+    robot.target.set(p.x, p.y, p.z);
     robot.pose(hand);
     robot.lastSeen = now;
     robot.active = true;
@@ -149,18 +122,15 @@ tracking.onHands = (hands) => {
     const hand = hands.find((h) => h.side === side);
     const row = el(`hand-${side.toLowerCase()}`);
     row.classList.toggle("detected", !!hand);
-    row.querySelector("b")!.textContent = hand
-      ? hand.grip
-        ? "Gripping"
-        : "Open"
-      : "Not visible";
+    const state = hand ? (hand.grip ? "Grip" : "Open") : "—";
+    if (row.querySelector("b")!.textContent !== state)
+      row.querySelector("b")!.textContent = state;
   }
-  el<HTMLButtonElement>("calibrate").disabled = hands.length === 0;
-  const trackingMessage = hands.length
-    ? `${hands.length === 2 ? "Both hands" : "One hand"} in view. Pinch to grab.`
-    : "Hands out of view. Move them into the camera.";
-  if (el("tracking-note").textContent !== trackingMessage)
-    el("tracking-note").textContent = trackingMessage;
+  el<HTMLButtonElement>("calibrate").disabled =
+    kitchen.paused || hands.length === 0;
+  const message = hands.length ? "Hand control" : "No hands detected";
+  if (el("tracking-note").textContent !== message)
+    el("tracking-note").textContent = message;
   lastStats = now;
 };
 kitchen.onFrame = () => {
@@ -169,17 +139,12 @@ kitchen.onFrame = () => {
   } catch {
     stopCamera();
     el("tracking-note").textContent =
-      "Tracking stopped. Enable your camera to retry.";
+      "Tracking stopped. Start the camera to retry.";
     el("tracking-note").classList.add("error");
   }
 };
 el("calibrate").onclick = () => {
-  const count = tracking.calibrate();
-  if (count) {
-    el("calibration-note").textContent =
-      `${count === 2 ? "Both hands" : "One hand"} calibrated. Recalibrate if you move.`;
-    toast("Neutral position saved.");
-  }
+  if (tracking.calibrate()) toast("Hands calibrated.");
 };
 function pause() {
   kitchen.paused = !kitchen.paused;
@@ -188,38 +153,12 @@ function pause() {
     kitchen.paused || tracking.latest.length === 0;
   el("paused-overlay").hidden = !kitchen.paused;
   el("pause").innerHTML =
-    `${icon(kitchen.paused ? "play" : "pause")}<span>${kitchen.paused ? "Resume" : "Pause"}</span>`;
+    `${icon(kitchen.paused ? "play" : "pause", 16)}<span>${kitchen.paused ? "Resume" : "Pause"}</span>`;
   el("pause").title = kitchen.paused ? "Resume (Space)" : "Pause (Space)";
-}
-function updateTask() {
-  el("step-pick").classList.toggle("done", taskPicked);
-  el("step-place").classList.toggle("done", taskComplete);
-  el("task-status").textContent = taskComplete
-    ? "Complete"
-    : taskPicked
-      ? "1 / 2"
-      : "0 / 2";
-  el("mission-title").textContent = taskComplete
-    ? "Cup placed"
-    : "Place the cup";
-  el("mission-copy").textContent = taskComplete
-    ? "Try the other objects, or reset the table to practice again."
-    : "Move the orange cup onto the circle on the board.";
-}
-function reset() {
-  taskPicked = false;
-  taskComplete = false;
-  kitchen.reset();
-  updateTask();
-  el("scene-hint").textContent =
-    kitchen.mode === "mouse"
-      ? "Move to reach. Hold to pick up."
-      : "Pinch near an object to pick it up.";
-  toast("Table reset.");
 }
 el("pause").onclick = pause;
 el("resume").onclick = pause;
-el("reset").onclick = reset;
+el("reset").onclick = () => kitchen.reset();
 function selectHand(side: Side) {
   if (kitchen.mode !== "mouse") return;
   kitchen.interaction.release(kitchen.activeSide);
@@ -243,12 +182,9 @@ function focusKitchen(force?: boolean) {
   el("fullscreen").setAttribute("aria-pressed", String(focused));
   el("fullscreen").setAttribute(
     "aria-label",
-    focused ? "Show input controls" : "Focus kitchen",
+    focused ? "Show camera" : "Focus kitchen",
   );
-  el("fullscreen").title = focused
-    ? "Show input controls (F)"
-    : "Focus kitchen (F)";
-  if (!focused) el("fullscreen").focus();
+  el("fullscreen").title = focused ? "Show camera (F)" : "Focus kitchen (F)";
 }
 el("fullscreen").onclick = () => focusKitchen();
 const dialog = el<HTMLDialogElement>("controls-dialog");
@@ -265,16 +201,15 @@ dialog.addEventListener("close", () => {
   helpPaused = false;
 });
 dialog.addEventListener("click", (event) => {
-  if (event.target === dialog) {
-    const r = dialog.getBoundingClientRect();
-    if (
-      event.clientX < r.left ||
-      event.clientX > r.right ||
-      event.clientY < r.top ||
-      event.clientY > r.bottom
-    )
-      dialog.close();
-  }
+  if (event.target !== dialog) return;
+  const r = dialog.getBoundingClientRect();
+  if (
+    event.clientX < r.left ||
+    event.clientX > r.right ||
+    event.clientY < r.top ||
+    event.clientY > r.bottom
+  )
+    dialog.close();
 });
 document.addEventListener("keydown", (event) => {
   if (
@@ -282,25 +217,25 @@ document.addEventListener("keydown", (event) => {
     event.ctrlKey ||
     event.metaKey ||
     event.altKey ||
-    (event.target as HTMLElement).closest("input,textarea,select")
+    (event.target as HTMLElement).closest("input,textarea,select") ||
+    dialog.open
   )
     return;
-  if (dialog.open) return;
-  if (event.code === "Escape") {
-    focusKitchen(false);
-    return;
-  }
   if (event.key === "?") {
     event.preventDefault();
     openHelp();
     return;
   }
-  if (event.code === "Space") {
-    if ((event.target as HTMLElement).closest("button")) return;
+  if (event.code === "Escape" && el("app").classList.contains("focused"))
+    focusKitchen(false);
+  if (
+    event.code === "Space" &&
+    !(event.target as HTMLElement).closest("button")
+  ) {
     event.preventDefault();
     pause();
   }
-  if (event.code === "KeyR") reset();
+  if (event.code === "KeyR") kitchen.reset();
   if (event.code === "KeyF") focusKitchen();
   if (event.code === "KeyQ") selectHand("Left");
   if (event.code === "KeyE") selectHand("Right");
@@ -309,27 +244,44 @@ document.addEventListener("visibilitychange", () => {
   if (document.hidden && !kitchen.paused) pause();
 });
 window.addEventListener("pagehide", () => tracking.stop());
-kitchen.interaction.onGrab = (id) => {
-  el("scene-hint").textContent =
-    `Holding ${id === "mug" ? "cup" : id}. Release to place.`;
-  if (id === "mug") {
-    taskPicked = true;
-    updateTask();
-  }
+
+const splitter = el("splitter");
+let splitting = false;
+function resizeCamera(width: number) {
+  const max = Math.min(600, innerWidth * 0.5);
+  const value = Math.max(240, Math.min(max, width));
+  el("app").style.setProperty("--camera-width", `${value}px`);
+  splitter.setAttribute("aria-valuenow", String(Math.round(value)));
+  splitter.setAttribute("aria-valuemax", String(Math.round(max)));
+}
+splitter.onpointerdown = (event) => {
+  if (event.button !== 0) return;
+  splitting = true;
+  splitter.setPointerCapture(event.pointerId);
+  document.body.classList.add("resizing");
 };
-kitchen.interaction.onDrop = (id) => {
-  el("scene-hint").textContent =
-    id === "mug"
-      ? "Place the cup inside the circle."
-      : "Move to reach. Hold to pick up.";
+splitter.onpointermove = (event) => {
+  if (splitting) resizeCamera(event.clientX);
 };
-kitchen.onProgress = (done) => {
-  taskComplete = done;
-  updateTask();
-  if (done) {
-    el("scene-hint").textContent = "Cup placed. Try the other objects.";
-    toast("Practice complete.");
-  }
+const endSplit = () => {
+  splitting = false;
+  document.body.classList.remove("resizing");
 };
+splitter.onpointerup = endSplit;
+splitter.onpointercancel = endSplit;
+splitter.onkeydown = (event) => {
+  if (!["ArrowLeft", "ArrowRight"].includes(event.key)) return;
+  event.preventDefault();
+  resizeCamera(
+    document.querySelector(".input-panel")!.getBoundingClientRect().width +
+      (event.key === "ArrowLeft" ? -16 : 16),
+  );
+};
+window.addEventListener("resize", () => {
+  if (el("app").style.getPropertyValue("--camera-width"))
+    resizeCamera(
+      document.querySelector(".input-panel")!.getBoundingClientRect().width,
+    );
+});
 if (import.meta.env.DEV)
   (window as unknown as { __kitchen: Kitchen }).__kitchen = kitchen;

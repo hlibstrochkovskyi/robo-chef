@@ -48,7 +48,7 @@ test(
         })),
         { node: "undefined", secure: true },
       );
-      await window.getByRole("button", { name: "Enable camera" }).click();
+      await window.getByRole("button", { name: "Start camera" }).click();
       await window.waitForFunction(
         () => document.getElementById("camera-status")?.textContent === "Live",
         {},
@@ -57,9 +57,9 @@ test(
       await window.waitForFunction(
         () =>
           document.getElementById("tracking-note")?.textContent ===
-          "Hands out of view. Move them into the camera.",
+          "No hands detected",
       );
-      await window.getByRole("button", { name: "Turn off camera" }).click();
+      await window.getByRole("button", { name: "Stop camera" }).click();
       assert.equal(
         await window
           .locator("video")
