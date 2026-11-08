@@ -2,16 +2,15 @@ import type {
   HandLandmarker,
   HandLandmarkerResult,
 } from "@mediapipe/tasks-vision";
+import { CONNECTIONS, type HandInput } from "./hand-input";
+import { ControlCore, type ControlHand, type InputFrame } from "./control-core";
+
 import {
-  CONNECTIONS,
-  isGripping,
-  distance,
-  tablePosition,
-  clamp,
-  type Side,
-  type Point,
-  type HandInput,
-} from "./hand-input";
+  TraceRecorder,
+  parseTrace,
+  eventTime,
+  type ControlTrace,
+} from "./control-recording";
 
 export class Tracking {
   model: HandLandmarker | null = null;
@@ -20,10 +19,13 @@ export class Tracking {
   lastDetect = 0;
   running = false;
   generation = 0;
-  latest: HandInput[] = [];
-  private grips = new Map<Side, boolean>();
-  private neutral = new Map<Side, { size: number; position: Point }>();
-  onHands: (hands: HandInput[], ms: number) => void = () => {};
+  latest: ControlHand[] = [];
+  core = new ControlCore();
+  recorder = new TraceRecorder();
+  replay: { trace: ControlTrace; index: number; started: number } | null = null;
+  onReplayEnd: () => void = () => {};
+  onFrameData: (frame: InputFrame) => void = () => {};
+  onHands: (hands: ControlHand[], ms: number) => void = () => {};
   onEnded: () => void = () => {};
   constructor(
     public video: HTMLVideoElement,
@@ -71,8 +73,7 @@ export class Tracking {
       this.running = true;
       this.lastTime = -1;
       this.lastDetect = 0;
-      this.grips.clear();
-      this.neutral.clear();
+      this.core.reset();
       stream.getVideoTracks()[0].addEventListener("ended", () => {
         if (this.running) {
           this.stop();
@@ -87,16 +88,34 @@ export class Tracking {
   stop() {
     this.generation++;
     this.running = false;
+    this.replay = null;
+    this.recorder.stop();
     this.stream?.getTracks().forEach((t) => t.stop());
     this.stream = null;
     this.video.srcObject = null;
     this.latest = [];
-    this.grips.clear();
+    this.core.reset();
     this.canvas
       .getContext("2d")
       ?.clearRect(0, 0, this.canvas.width, this.canvas.height);
   }
   detect(now: number) {
+    if (this.replay) {
+      const player = this.replay;
+      while (
+        player.index < player.trace.events.length &&
+        eventTime(player.trace.events[player.index]) <= now - player.started
+      ) {
+        const event = player.trace.events[player.index++];
+        if (event.type === "calibrate") this.core.calibrate();
+        else this.process(event.frame);
+      }
+      if (player.index === player.trace.events.length) {
+        this.replay = null;
+        this.onReplayEnd();
+      }
+      return;
+    }
     if (
       !this.running ||
       !this.model ||
@@ -109,45 +128,64 @@ export class Tracking {
     this.lastDetect = now;
     const start = performance.now();
     const result = this.model.detectForVideo(this.video, now);
-    this.latest = result.landmarks.map((landmarks, i) => {
-      const side = result.handedness[i][0].categoryName as Side;
-      const grip = isGripping(landmarks, this.grips.get(side));
-      this.grips.set(side, grip);
-      return { side, landmarks, world: result.worldLandmarks[i], grip };
-    });
-    const visible = new Set(this.latest.map((h) => h.side));
-    for (const side of this.grips.keys())
-      if (!visible.has(side)) this.grips.delete(side);
-    this.draw(result);
-    this.onHands(this.latest, performance.now() - start);
+    const frame: InputFrame = {
+      time: now,
+      detections: result.landmarks.map((landmarks, i) => ({
+        label: result.handedness[i][0].categoryName as "Left" | "Right",
+        score: result.handedness[i][0].score,
+        landmarks,
+        world: result.worldLandmarks[i],
+      })),
+    };
+    this.recorder.frame(frame);
+    this.process(frame, performance.now() - start);
   }
   position(hand: HandInput) {
-    const size = distance(hand.landmarks[0], hand.landmarks[9]);
-    const neutral = this.neutral.get(hand.side);
-    const p = tablePosition(hand.landmarks[9], neutral?.size ?? 0.16, size);
-    if (neutral) {
-      const origin = tablePosition(
-        neutral.position,
-        neutral.size,
-        neutral.size,
-      );
-      p.x = p.x - origin.x + (hand.side === "Left" ? -0.95 : 0.95);
-      p.z = p.z - origin.z + 0.5;
-    }
-    return { ...p, x: clamp(p.x, -2.6, 2.6), z: clamp(p.z, -1.15, 1.6) };
+    return (
+      this.latest.find((h) => h.side === hand.side)?.target ?? {
+        x: 0,
+        y: 0.5,
+        z: 0.45,
+      }
+    );
   }
   calibrate() {
-    for (const h of this.latest)
-      this.neutral.set(h.side, {
-        size: distance(h.landmarks[0], h.landmarks[9]),
-        position: { ...h.landmarks[9] },
-      });
-    return this.latest.length;
+    const count = this.core.calibrate();
+    if (count) this.recorder.calibrate(performance.now());
+    return count;
+  }
+  process(frame: InputFrame, ms = 0) {
+    this.onFrameData(frame);
+    this.latest = this.core.process(frame);
+    this.drawHands(this.latest);
+    this.onHands(this.latest, ms);
+  }
+  record() {
+    this.core.reset();
+    this.latest = [];
+    this.recorder.start(performance.now());
+  }
+  play(trace: ControlTrace) {
+    this.stop();
+    this.replay = {
+      trace: parseTrace(trace),
+      index: 0,
+      started: performance.now(),
+    };
+  }
+  get canCalibrate() {
+    return this.core.canCalibrate("Left") || this.core.canCalibrate("Right");
+  }
+  drawHands(hands: HandInput[]) {
+    this.draw({
+      landmarks: hands.map((h) => h.landmarks),
+      handedness: hands.map((h) => [{ categoryName: h.side }]),
+    } as HandLandmarkerResult);
   }
   draw(result: HandLandmarkerResult) {
     const c = this.canvas;
-    c.width = this.video.videoWidth;
-    c.height = this.video.videoHeight;
+    c.width = this.video.videoWidth || 640;
+    c.height = this.video.videoHeight || 480;
     const ctx = c.getContext("2d")!;
     ctx.clearRect(0, 0, c.width, c.height);
     for (let i = 0; i < result.landmarks.length; i++) {

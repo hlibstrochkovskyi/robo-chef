@@ -100,35 +100,31 @@ tracking.onEnded = () => {
 let lastStats = 0;
 tracking.onHands = (hands) => {
   const now = performance.now();
-  for (const hand of hands) {
-    const robot = kitchen.hands[hand.side];
-    const p = tracking.position(hand);
-    robot.target.set(p.x, p.y, p.z);
-    robot.pose(hand);
-    robot.lastSeen = now;
-    robot.active = true;
-    kitchen.interaction.updateHand(
-      hand.side,
-      robot.position,
-      hand.grip,
-      Math.atan2(
-        hand.landmarks[5].y - hand.landmarks[17].y,
-        hand.landmarks[17].x - hand.landmarks[5].x,
-      ),
-    );
-  }
+  kitchen.acceptHands(hands, now);
   if (now - lastStats < 200) return;
   for (const side of ["Left", "Right"] as Side[]) {
     const hand = hands.find((h) => h.side === side);
     const row = el(`hand-${side.toLowerCase()}`);
     row.classList.toggle("detected", !!hand);
-    const state = hand ? (hand.grip ? "Grip" : "Open") : "—";
+    const state = hand
+      ? !hand.calibrated
+        ? "Calibrate"
+        : hand.state !== "tracking"
+          ? "Recovering"
+          : hand.grip
+            ? "Grip"
+            : "Open"
+      : "—";
     if (row.querySelector("b")!.textContent !== state)
       row.querySelector("b")!.textContent = state;
   }
   el<HTMLButtonElement>("calibrate").disabled =
-    kitchen.paused || hands.length === 0;
-  const message = hands.length ? "Hand control" : "No hands detected";
+    kitchen.paused || !tracking.canCalibrate;
+  const message = hands.length
+    ? hands.some((h) => h.calibrated)
+      ? "Hand control"
+      : "Hold open palms, then calibrate"
+    : "No hands detected";
   if (el("tracking-note").textContent !== message)
     el("tracking-note").textContent = message;
   lastStats = now;
@@ -144,13 +140,19 @@ kitchen.onFrame = () => {
   }
 };
 el("calibrate").onclick = () => {
-  if (tracking.calibrate()) toast("Hands calibrated.");
+  const count = tracking.calibrate();
+  if (count) kitchen.parkHeld();
+  toast(
+    count
+      ? "Hands calibrated. Open to enable control."
+      : "Hold open palms still for a moment.",
+  );
 };
 function pause() {
   kitchen.paused = !kitchen.paused;
   kitchen.mouseGrip = false;
   el<HTMLButtonElement>("calibrate").disabled =
-    kitchen.paused || tracking.latest.length === 0;
+    kitchen.paused || !tracking.canCalibrate;
   el("paused-overlay").hidden = !kitchen.paused;
   el("pause").innerHTML =
     `${icon(kitchen.paused ? "play" : "pause", 16)}<span>${kitchen.paused ? "Resume" : "Pause"}</span>`;
@@ -285,3 +287,6 @@ window.addEventListener("resize", () => {
 });
 if (import.meta.env.DEV)
   (window as unknown as { __kitchen: Kitchen }).__kitchen = kitchen;
+
+if (import.meta.env.DEV)
+  (window as unknown as { __tracking: Tracking }).__tracking = tracking;

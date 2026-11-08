@@ -16,7 +16,7 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host 127.0.0.1",
     "setup": "node scripts/setup-assets.mjs",
-    "test": "tsx --test tests/interaction.test.ts tests/robot-hand.test.ts",
+    "test": "tsx --test tests/interaction.test.ts tests/robot-hand.test.ts tests/control-core.test.ts tests/grasp.test.ts tests/recording.test.ts tests/teleoperation.test.ts",
     "test:browser": "tsx --test tests/browser.test.ts",
     "format": "prettier --write src tests scripts electron electron-builder.yml package.json tsconfig.json index.html README.md"
   },

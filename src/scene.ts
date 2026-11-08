@@ -4,6 +4,8 @@ import { Interaction } from "./interaction";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { buildKitchen } from "./kitchen-assets";
 import { RobotHand } from "./robot-hand";
+import type { ControlHand } from "./control-core";
+import { applyHandControl } from "./teleoperation";
 
 const V = (p: Point) => new T.Vector3(p.x, p.y, p.z);
 const up = new T.Vector3(0, 1, 0);
@@ -21,7 +23,12 @@ export class Kitchen {
   mode: "mouse" | "camera" = "mouse";
   mouseGrip = false;
   activeSide: Side = "Right";
+  private debugTargets = new T.Group();
   private last = 0;
+  private controls = new Map<
+    Side,
+    { hand: ControlHand; received: number; available: boolean }
+  >();
   private resizeObserver: ResizeObserver;
   constructor(public container: HTMLElement) {
     this.renderer = new T.WebGLRenderer({ antialias: true });
@@ -65,6 +72,16 @@ export class Kitchen {
       Left: new RobotHand("Left", this.scene),
       Right: new RobotHand("Right", this.scene),
     };
+    for (const color of [0x66b9ff, 0xffd08a])
+      for (const wireframe of [true, false])
+        this.debugTargets.add(
+          new T.Mesh(
+            new T.SphereGeometry(wireframe ? 0.05 : 0.03, 12, 8),
+            new T.MeshBasicMaterial({ color, wireframe, depthTest: false }),
+          ),
+        );
+    this.debugTargets.visible = false;
+    this.scene.add(this.debugTargets);
     this.resizeObserver = new ResizeObserver(() => this.resize());
     this.resizeObserver.observe(container);
     this.resize();
@@ -106,15 +123,56 @@ export class Kitchen {
         clamp(hit.z, -1.4, 1.7),
       );
   }
+  showTargets(show: boolean) {
+    this.debugTargets.visible = show;
+  }
+  acceptHands(hands: ControlHand[], now: number) {
+    for (const side of ["Left", "Right"] as Side[]) {
+      const input = hands.find((h) => h.side === side),
+        robot = this.hands[side];
+      const index = side === "Left" ? 0 : 2;
+      this.debugTargets.children[index].visible = !!input?.calibrated;
+      this.debugTargets.children[index + 1].visible = !!input?.calibrated;
+      if (input?.calibrated) {
+        this.debugTargets.children[index].position.copy(V(input.rawTarget));
+        this.debugTargets.children[index + 1].position.copy(V(input.target));
+      }
+      if (input?.enabled) {
+        this.controls.set(side, {
+          hand: input,
+          received: now,
+          available: true,
+        });
+        robot.lastSeen = now;
+        robot.pose(input, input.reference);
+      } else {
+        const previous = this.controls.get(side);
+        if (previous) previous.available = false;
+        robot.target.copy(robot.position);
+        robot.active = false;
+        this.interaction.suspend(side);
+      }
+    }
+  }
+  parkHeld() {
+    for (const side of ["Left", "Right"] as Side[]) this.interaction.park(side);
+  }
   setMode(mode: "mouse" | "camera") {
     this.interaction.release("Left");
     this.interaction.release("Right");
     this.mouseGrip = false;
     this.mode = mode;
+    this.controls.clear();
+    for (const hand of Object.values(this.hands)) {
+      hand.target.copy(hand.position);
+      hand.lastSeen = -Infinity;
+    }
   }
   reset() {
     this.interaction.reset();
+    if (this.mode === "camera") this.parkHeld();
     this.mouseGrip = false;
+    this.controls.clear();
   }
   animate(time: number) {
     const dt = Math.min((time - this.last) / 1000, 0.04);
@@ -129,10 +187,20 @@ export class Kitchen {
           hand.update(dt);
           this.interaction.updateHand(side, hand.target, grip);
         } else {
-          hand.update(dt);
-          if (time - hand.lastSeen > 650) {
-            this.interaction.release(side);
+          const command = this.controls.get(side);
+          const tracking = command?.available && time - command.received < 180;
+          if (tracking) {
+            applyHandControl(hand, this.interaction, command.hand, dt);
+          } else {
+            hand.target.copy(hand.position);
+            hand.update(0);
             hand.active = false;
+            this.interaction.suspend(side);
+            if (
+              time - hand.lastSeen > 1000 &&
+              this.interaction.state[side] !== "waiting-open"
+            )
+              this.interaction.park(side);
           }
         }
       }
@@ -140,7 +208,7 @@ export class Kitchen {
       for (const item of this.interaction.items) {
         const mesh = this.meshes.get(item.id)!;
         mesh.position.copy(V(item.position));
-        mesh.rotation.y = item.rotation;
+        mesh.quaternion.copy(item.orientation);
         const highlighted =
           Object.values(this.interaction.hover).includes(item.id) ||
           !!item.heldBy;
