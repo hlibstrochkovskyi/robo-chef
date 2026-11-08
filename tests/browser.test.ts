@@ -3,10 +3,12 @@ import assert from "node:assert/strict";
 import { chromium } from "@playwright/test";
 import { createServer } from "vite";
 import { existsSync } from "node:fs";
+import { detection } from "./fixtures/hands";
+import { TraceRecorder } from "../src/control-recording";
 
 test(
   "free kitchen supports objects, camera, focus, and pause without task UI",
-  { timeout: 90000 },
+  { timeout: 150000 },
   async () => {
     const server = await createServer({
       server: {
@@ -43,6 +45,19 @@ test(
       await page.waitForFunction(
         () => (window as any).__kitchen.scene.userData.texturesLoaded,
       );
+      assert.equal(await page.locator("#diagnostics").isVisible(), false);
+      await page.keyboard.press("F8");
+      await page
+        .getByRole("checkbox", { name: "Show raw / filtered targets" })
+        .check();
+      assert.equal(
+        await page.evaluate(
+          () => (window as any).__kitchen.debugTargets.visible,
+        ),
+        true,
+      );
+      await page.keyboard.press("F8");
+      assert.equal(await page.locator("#diagnostics").isVisible(), false);
       await page.screenshot({ path: "/tmp/robo-chef-desktop.png" });
       await page.evaluate(() => {
         const k = (window as any).__kitchen;
@@ -183,6 +198,23 @@ test(
         "camera",
       );
       assert.equal(await page.locator("#mouse-switch").isVisible(), false);
+      await page.keyboard.press("F8");
+      await page
+        .getByRole("button", { name: "Record input", exact: true })
+        .click();
+      await page.waitForFunction(
+        () => (window as any).__tracking.recorder.trace.events.length > 2,
+      );
+      await page
+        .getByRole("button", { name: "Stop recording", exact: true })
+        .click();
+      const downloadPromise = page.waitForEvent("download");
+      await page.getByRole("button", { name: "Export JSON" }).click();
+      assert.equal(
+        (await downloadPromise).suggestedFilename(),
+        "robo-chef-tracking.json",
+      );
+      await page.keyboard.press("F8");
       await page
         .getByRole("button", { name: "Stop camera", exact: true })
         .click();
@@ -197,6 +229,44 @@ test(
           .evaluate((v: HTMLVideoElement) => v.srcObject),
         null,
       );
+      const recorder = new TraceRecorder();
+      recorder.start(0);
+      for (let time = 0; time <= 800; time += 50)
+        recorder.frame({
+          time,
+          detections: [detection("Left"), detection("Right")],
+        });
+      recorder.calibrate(825);
+      for (let time = 850; time <= 4000; time += 50)
+        recorder.frame({
+          time,
+          detections: [detection("Left"), detection("Right")],
+        });
+      await page.keyboard.press("F8");
+      await page
+        .locator("#trace-import")
+        .setInputFiles({
+          name: "synthetic.json",
+          mimeType: "application/json",
+          buffer: Buffer.from(JSON.stringify(recorder.stop())),
+        });
+      await page.waitForFunction(() =>
+        (window as any).__tracking.latest.some((h: any) => h.enabled),
+      );
+      assert.equal(await page.locator("#hand-states").isVisible(), true);
+      assert.equal(await page.locator("#mouse-switch").isVisible(), false);
+      assert.equal(await page.locator("#calibrate").isVisible(), false);
+      await page.waitForFunction(
+        () =>
+          document.getElementById("trace-message")?.textContent ===
+          "Replay finished.",
+      );
+      assert.equal(await page.locator("#camera-status").textContent(), "Off");
+      assert.equal(
+        await page.evaluate(() => (window as any).__kitchen.mode),
+        "mouse",
+      );
+      await page.keyboard.press("F8");
       await page.setViewportSize({ width: 900, height: 700 });
       await page.screenshot({ path: "/tmp/robo-chef-compact.png" });
       assert.equal(

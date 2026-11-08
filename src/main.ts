@@ -4,6 +4,7 @@ import { Kitchen } from "./scene";
 import { Tracking } from "./tracking";
 import { icon, mountInterface } from "./interface";
 import type { Side } from "./hand-input";
+import { diagnostics } from "./diagnostics";
 
 mountInterface();
 const el = <T extends HTMLElement = HTMLElement>(id: string) =>
@@ -288,5 +289,6 @@ window.addEventListener("resize", () => {
 if (import.meta.env.DEV)
   (window as unknown as { __kitchen: Kitchen }).__kitchen = kitchen;
 
+diagnostics(tracking, kitchen, stopCamera);
 if (import.meta.env.DEV)
   (window as unknown as { __tracking: Tracking }).__tracking = tracking;

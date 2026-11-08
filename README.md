@@ -9,12 +9,12 @@ npm start
 
 Opens a native window. No web server required. First launch downloads the hand model.
 
-- **Camera:** show your palms, calibrate, then pinch near an object to grab it. Open your fingers to release.
-- **Reach:** move up in the video to reach farther across the table. Left/right follows the mirrored preview.
+- **Camera:** hold open palms steady, calibrate, then pinch near a handle or object to grab it. Open your fingers to release.
+- **Reach:** raise your hand to lift; approach the camera to reach farther. Left/right follows the mirrored preview. Depth is relative.
 - **Mouse:** move to reach, hold the primary button to grab, release to drop.
 - **Space:** pause. **R:** reset.
 - **F:** focus the kitchen. **Q / E:** choose the left / right hand in mouse mode.
-- **?:** controls and shortcuts.
+- **?:** controls and shortcuts. **F8:** diagnostics, input recording, replay.
 
 Free interaction with the cup, tomato, and egg. Drag the divider to resize the camera view.
 
@@ -28,8 +28,10 @@ npm run package
 
 Linux AppImage: `release/`. Requires a webcam and graphics support.
 
-Prototype: assisted grabs, approximate depth, simple gravity. No cooking or full contact physics yet. Video stays on the device; runtime assets are bundled locally.
+Prototype: constrained robot motion, assisted contact proxies, relative depth, and simple settling. No full contact physics yet. Video stays on the device; runtime assets are bundled locally.
 
 Desktop checks use a simulated camera, not real hands. Browser checks additionally need Chromium (`npx playwright install chromium`).
 
 Built with [Three.js](https://threejs.org/) and [MediaPipe](https://developers.google.com/edge/mediapipe/solutions/vision/hand_landmarker).
+
+See [control behavior and manual checks](docs/controls.md).

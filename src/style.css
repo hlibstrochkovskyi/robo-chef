@@ -99,10 +99,9 @@ p {
 }
 .workbench {
   display: grid;
-  grid-template-columns: var(
-      --camera-width,
-      clamp(260px, 30vw, 420px)
-    ) 4px minmax(0, 1fr);
+  grid-template-columns:
+    var(--camera-width, clamp(260px, 30vw, 420px))
+    4px minmax(0, 1fr);
   min-height: 0;
 }
 .input-panel,
@@ -508,4 +507,53 @@ kbd {
   .focused #scene {
     min-height: 0;
   }
+}
+
+#diagnostics {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 8;
+  width: 380px;
+  max-width: calc(100vw - 32px);
+  max-height: 80vh;
+  overflow: auto;
+  background: #272c33;
+  color: #d8e1ec;
+  border: 1px solid #667588;
+  border-radius: 5px;
+  padding: 12px;
+  box-shadow: 0 6px 35px #0006;
+  font-size: 11px;
+}
+.diagnostics-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.diagnostics-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 10px 0;
+}
+.diagnostics-actions .small-button {
+  background: #3d4754;
+  padding: 4px 8px;
+  cursor: pointer;
+}
+.diagnostics-toggle {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+#trace-message {
+  color: #a9b7c7;
+  margin: 10px 0;
+  line-height: 1.5;
+}
+#diagnostics-state {
+  font: 11px/1.7 monospace;
+  margin: 0;
+  white-space: pre-wrap;
 }
