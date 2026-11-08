@@ -1,6 +1,14 @@
 import * as T from "three";
 import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
-import type { HandInput, Side } from "./hand-input";
+import type { HandInput, Side, Point } from "./hand-input";
+import {
+  restPose,
+  retargetPose,
+  solveArm,
+  ARM_UPPER,
+  ARM_FOREARM,
+} from "./hand-pose";
+export { restPose } from "./hand-pose";
 
 const axisY = new T.Vector3(0, 1, 0);
 const paint = new T.MeshStandardMaterial({
@@ -29,32 +37,6 @@ const axle = new T.CylinderGeometry(0.034, 0.034, 0.088, 20);
 const axleCap = new T.CylinderGeometry(0.023, 0.023, 0.007, 16);
 const screw = new T.CylinderGeometry(0.01, 0.01, 0.005, 12);
 
-export function restPose(side: Side, grip = false) {
-  const sign = side === "Left" ? -1 : 1;
-  const points = [new T.Vector3(0, 0, 0.25)];
-  for (let finger = 0; finger < 5; finger++)
-    for (let joint = 0; joint < 4; joint++) {
-      if (finger === 0)
-        points.push(
-          new T.Vector3(
-            sign * (-0.22 - joint * 0.055),
-            grip ? 0.03 + joint * 0.035 : 0,
-            0.11 - joint * 0.065,
-          ),
-        );
-      else
-        points.push(
-          new T.Vector3(
-            sign * ((finger - 1) * 0.115 - 0.17),
-            grip ? 0.04 + Math.sin((joint / 3) * Math.PI) * 0.17 : 0.01,
-            -0.03 -
-              joint * (finger === 4 ? 0.085 : 0.105) +
-              (grip ? joint * 0.08 : 0),
-          ),
-        );
-    }
-  return points;
-}
 function mesh(
   geometry: T.BufferGeometry,
   material: T.Material,
@@ -101,6 +83,10 @@ export class RobotHand {
   palm = new T.Group();
   wrist = new T.Group();
   arm = new T.Group();
+  upper = new T.Group();
+  elbowJoint = new T.Mesh(new T.SphereGeometry(0.13, 20, 16), dark);
+  private lengths: number[] = [];
+  private orientation = new T.Quaternion();
   points: T.Vector3[];
   targets: T.Vector3[];
   position: T.Vector3;
@@ -122,6 +108,9 @@ export class RobotHand {
     this.group.name = `${side} robot hand`;
     this.points = restPose(side);
     this.targets = restPose(side);
+    this.lengths = this.points.map((p, i) =>
+      i > 0 ? p.distanceTo(this.points[i - 1]) : 0,
+    );
     this.position = new T.Vector3(side === "Left" ? -1.45 : 1.45, 0.65, 1.35);
     this.target = this.position.clone();
     this.buildPalm();
@@ -155,7 +144,9 @@ export class RobotHand {
       }
     this.buildWrist();
     this.buildArm();
-    scene.add(this.group, this.arm);
+    mesh(new T.CylinderGeometry(0.1, 0.13, 1, 24), paint, this.upper);
+    this.elbowJoint.castShadow = true;
+    scene.add(this.group, this.arm, this.upper, this.elbowJoint);
     this.update(1);
   }
   private buildPalm() {
@@ -219,25 +210,89 @@ export class RobotHand {
     for (const y of [-0.34, 0.32])
       mesh(screw, alloy, this.arm).position.set(0, y, 0.108);
   }
-  pose(input: HandInput) {
-    const points = input.world.length === 21 ? input.world : input.landmarks;
-    if (points.length !== 21) return;
-    const center = points[9];
-    this.targets = points.map(
-      (p) =>
-        new T.Vector3(
-          -(p.x - center.x) * 3.5,
-          -(p.z - center.z) * 3.5,
-          (p.y - center.y) * 3.5,
-        ),
+  pose(input: HandInput, reference?: Point[]) {
+    if (input.world.length !== 21) return;
+    this.targets = retargetPose(
+      input.world,
+      reference ?? input.world,
+      this.side,
     );
+  }
+  contactPoints() {
+    const points = [
+      this.palm.position.clone(),
+      ...this.points.slice(1).map((p) => p.clone()),
+    ];
+    for (const digit of this.digits)
+      points.push(
+        this.points[digit.start].clone().lerp(this.points[digit.end], 0.5),
+      );
+    return points;
+  }
+  graspPoint() {
+    return this.points[4].clone().lerp(this.points[8], 0.5).add(this.position);
+  }
+  avoidHeld(penetration: (point: T.Vector3) => number) {
+    const rest = restPose(this.side).map((p) =>
+      p.applyQuaternion(this.palm.quaternion),
+    );
+    for (const base of [1, 5, 9, 13, 17]) {
+      const original = [0, 1, 2, 3].map((j) => this.points[base + j].clone());
+      let best = original,
+        bestCost = Infinity;
+      for (const blend of [0, 0.2, 0.4, 0.6, 0.8, 1]) {
+        const candidate = [original[0].clone()];
+        let cost = 0;
+        for (let j = 0; j < 3; j++) {
+          const direction = original[j + 1]
+            .clone()
+            .sub(original[j])
+            .normalize()
+            .lerp(
+              rest[base + j + 1]
+                .clone()
+                .sub(rest[base + j])
+                .normalize(),
+              blend,
+            )
+            .normalize();
+          candidate.push(
+            candidate[j]
+              .clone()
+              .addScaledVector(direction, this.lengths[base + j + 1]),
+          );
+          cost += penetration(candidate[j + 1].clone().add(this.position));
+          cost += penetration(
+            candidate[j]
+              .clone()
+              .lerp(candidate[j + 1], 0.5)
+              .add(this.position),
+          );
+        }
+        if (cost < bestCost) {
+          bestCost = cost;
+          best = candidate;
+        }
+        if (cost < 1e-9) break;
+      }
+      for (let j = 1; j < 4; j++) this.points[base + j].copy(best[j]);
+    }
+    this.update(0);
   }
   demo(grip: boolean) {
     this.targets = restPose(this.side, grip);
   }
   update(dt: number) {
     const alpha = 1 - Math.exp(-18 * dt);
-    this.position.lerp(this.target, alpha);
+    const reachable = solveArm(this.side, this.target).wrist;
+    const delta = reachable.clone().sub(this.position);
+    this.position.addScaledVector(
+      delta,
+      Math.min(
+        alpha,
+        delta.length() > 0 ? (3 * Math.min(dt, 0.1)) / delta.length() : 1,
+      ),
+    );
     this.group.position.copy(this.position);
     this.points.forEach((p, index) => p.lerp(this.targets[index], alpha));
     const wrist = this.points[0],
@@ -253,7 +308,29 @@ export class RobotHand {
     else this.y.normalize();
     this.x.crossVectors(this.y, this.z).normalize();
     this.basis.makeBasis(this.x, this.y, this.z);
-    this.palm.position.copy(wrist).lerp(middle, 0.53);
+    const desiredRotation = new T.Quaternion().setFromRotationMatrix(
+      this.basis,
+    );
+    this.orientation.rotateTowards(desiredRotation, 3 * Math.min(dt, 0.1));
+    const palmRotation = this.orientation;
+    this.x.set(1, 0, 0).applyQuaternion(palmRotation);
+    this.y.set(0, 1, 0).applyQuaternion(palmRotation);
+    this.z.set(0, 0, 1).applyQuaternion(palmRotation);
+    this.basis.makeBasis(this.x, this.y, this.z);
+    const rest = restPose(this.side);
+    for (const index of [0, 1, 5, 9, 13, 17])
+      this.points[index].copy(rest[index]).applyQuaternion(palmRotation);
+    for (const digit of this.digits) {
+      const direction = this.points[digit.end]
+        .clone()
+        .sub(this.points[digit.start]);
+      if (direction.lengthSq() < 1e-9) direction.copy(this.z).negate();
+      else direction.normalize();
+      this.points[digit.end]
+        .copy(this.points[digit.start])
+        .addScaledVector(direction, this.lengths[digit.end]);
+    }
+    this.palm.position.copy(this.points[0]).lerp(this.points[9], 0.53);
     this.palm.quaternion.setFromRotationMatrix(this.basis);
     this.wrist.position.copy(wrist);
     this.wrist.quaternion.copy(this.palm.quaternion);
@@ -282,17 +359,25 @@ export class RobotHand {
       digit.pad.scale.y = length * 0.66;
       digit.hinge.position.y = -length * 0.5;
     }
-    const armStart = new T.Vector3(
-      this.side === "Left" ? -1.5 : 1.5,
-      0.2,
-      2.85,
+    const solved = solveArm(
+      this.side,
+      this.points[0].clone().add(this.position),
     );
-    const armEnd = wrist.clone().add(this.position);
-    this.arm.position.copy(armStart).lerp(armEnd, 0.5);
-    this.arm.scale.y = armStart.distanceTo(armEnd);
+    const actualWrist = this.points[0].clone().add(this.position);
+    this.position.add(solved.wrist.clone().sub(actualWrist));
+    this.group.position.copy(this.position);
+    this.arm.position.copy(solved.elbow).lerp(solved.wrist, 0.5);
+    this.arm.scale.y = ARM_FOREARM;
     this.arm.quaternion.setFromUnitVectors(
       axisY,
-      armEnd.sub(armStart).normalize(),
+      solved.wrist.clone().sub(solved.elbow).normalize(),
     );
+    this.upper.position.copy(solved.shoulder).lerp(solved.elbow, 0.5);
+    this.upper.scale.y = ARM_UPPER;
+    this.upper.quaternion.setFromUnitVectors(
+      axisY,
+      solved.elbow.clone().sub(solved.shoulder).normalize(),
+    );
+    this.elbowJoint.position.copy(solved.elbow);
   }
 }
